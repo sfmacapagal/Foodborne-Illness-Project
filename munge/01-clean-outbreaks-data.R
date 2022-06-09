@@ -17,9 +17,9 @@
 
 df_outbreaks <- csv_outbreaks %>%
   mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
-         date = lubridate::ym(date), # changes to date format
-         time = lubridate::time_length(interval(min(date), date),
-                                       unit = "month")) %>% # computes number
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% # computes number
                                                             # of months since
                                                             # lowest date
   group_by(time) %>%
