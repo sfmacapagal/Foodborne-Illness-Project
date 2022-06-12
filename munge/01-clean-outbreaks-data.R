@@ -15,7 +15,7 @@
 # total illnesses, hospitalizations, fatalities are grouped by month,
 # independent of other variables
 
-df_outbreaks <- csv_outbreaks %>%
+df_outbreaks_full <- csv_outbreaks %>%
   mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
          date = ym(date), # changes to date format
          time = time_length(interval(min(date), date),
@@ -28,4 +28,17 @@ df_outbreaks <- csv_outbreaks %>%
          total_fatalities = sum(fatalities, na.rm = TRUE))
 
 
-
+df_outbreaks_summary <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% # computes number
+  # of months since
+  # lowest date
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE)) %>%
+  # mutate(date = glue::glue("{year}-{month}")) %>%
+  arrange(time) %>%
+  ungroup()
