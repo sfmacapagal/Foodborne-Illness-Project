@@ -25,7 +25,7 @@ df_outbreaks_filter <- df_outbreaks_summary %>%
 ggplot(df_outbreaks_filter) +
   geom_line(aes(x = date,
                 y = total_illnesses),
-            col = "blue") +
+            col = "yellowgreen") +
   geom_line(aes(x = date,
                 y = total_illnesses_filter),
             col = "red",
@@ -43,6 +43,7 @@ ggplot(df_outbreaks_filter) +
                minor_breaks = function(x) seq.Date(from = min(x),
                                                    to = max(x),
                                                    by = "6 months")) +
+  theme_minimal() +
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   NULL
 
@@ -50,9 +51,9 @@ ggplot(df_outbreaks_filter) +
 # graph of all hospitalizations over time --------------------------------------
 
 ggplot(df_outbreaks_filter) +
-  geom_line(aes(x = date,
-                y = total_hospitalizations),
-            col = "blue") +
+  # geom_line(aes(x = date,
+  #               y = total_hospitalizations),
+  #           col = "blue") +
   geom_line(aes(x = date,
                 y = total_hospitalizations_filter),
             col = "red",
@@ -76,9 +77,9 @@ ggplot(df_outbreaks_filter) +
 # graph of all fatalities over time --------------------------------------------
 
 ggplot(df_outbreaks_filter) +
-  geom_line(aes(x = date,
-                y = total_fatalities),
-            col = "blue") +
+  # geom_line(aes(x = date,
+  #               y = total_fatalities),
+  #           col = "blue") +
   geom_line(aes(x = date,
                 y = total_fatalities_filter),
             col = "red",
@@ -98,3 +99,20 @@ ggplot(df_outbreaks_filter) +
                                                    by = "6 months")) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   NULL
+
+
+# graph of seasonality ---------------------------------------------------------
+
+df_outbreaks_summary %>%
+  mutate(month = factor(month, levels = month.name)) %>%
+  ggplot() +
+  geom_line(aes(x = month,
+                y = total_illnesses,
+                group = as.factor(year),
+                col = as.factor(year))) +
+  theme(legend.position = "bottom") +
+  labs(x = "Month",
+       y = "Total Illnesses",
+       title = "Total Illnesses by Month",
+       subtitle = "Grouped by Year",
+       color = "Year")
