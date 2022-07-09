@@ -38,7 +38,23 @@ df_outbreaks_summary <- csv_outbreaks %>%
   group_by(time, year, month, date) %>%
   summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
          total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
-         total_fatalities = sum(fatalities, na.rm = TRUE)) %>%
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
   # mutate(date = glue::glue("{year}-{month}")) %>%
   arrange(time) %>%
   ungroup()
+
+
+df_outbreaks_summary %>%
+  mutate(month = factor(month, levels = month.name),
+         year = factor(year)) %>%
+  group_by(month) %>%
+  summarize(mean_illnesses = mean(total_illnesses, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot() + 
+  geom_line(aes(x = month,
+                y = mean_illnesses))
+  
+
