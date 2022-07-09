@@ -22,8 +22,11 @@ lag1.plot(df_outbreaks_summary$log_illnesses, 12)
 lag2.plot(df_outbreaks_summary$log_illnesses, df_outbreaks_summary$log_hospitalizations, 6)
 
 # differencing produces smaller ACF, particularly with log transformations
-tsplot(diff(df_outbreaks_summary$log_illnesses))
-acf1(diff(df_outbreaks_summary$log_illnesses))
+tsplot(diff(df_outbreaks_summary$log_illnesses),
+       main = "Differenced log(Illnesses)",
+       ylab = "Change in log(Illnesses)")
+acf1(diff(df_outbreaks_summary$log_illnesses)) # 1 lag is significant
+pacf(diff(df_outbreaks_summary$log_illnesses)) # 2 lags are significant
 qqnorm(df_outbreaks_summary$log_illnesses); qqline(df_outbreaks_summary$log_illnesses, col=2, lwd=2)
 qqnorm(diff(df_outbreaks_summary$log_illnesses)); qqline(diff(df_outbreaks_summary$log_illnesses), col=2, lwd=2)
 
@@ -51,3 +54,4 @@ tsplot(resid(fit_log))
 acf1(resid(fit_log))
 
 
+pacf(diff(df_outbreaks_summary$log_illnesses))
