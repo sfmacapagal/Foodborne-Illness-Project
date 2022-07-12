@@ -42,9 +42,9 @@ df_outbreaks_summary <- csv_outbreaks %>%
          log_illnesses = log(total_illnesses),
          log_hospitalizations = log(total_hospitalizations),
          log_fatalities = log(total_fatalities)) %>%
-  # mutate(date = glue::glue("{year}-{month}")) %>%
-  arrange(time) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses))) %>%
+  arrange(time)
 
 
 df_outbreaks_summary %>%
