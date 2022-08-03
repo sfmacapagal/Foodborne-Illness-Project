@@ -1,0 +1,43 @@
+---
+title: "Compare TS models"
+author: "Steven Macapagal"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Initial model
+
+```{r}
+
+acf2(df_outbreaks_summary$diff_log_illnesses)
+sarima(df_outbreaks_summary$log_illnesses, 1, 1, 1,
+       no.constant = TRUE)
+```
+
+```{r}
+plot(ARMAtoMA(ar = 0.2193, ma = -0.9351, lag.max = 100))
+plot(ARMAtoAR(ar = 0.2913, ma = -0.9351, lag.max = 100))
+```
+
+Note that both the AR and MA coefficients go to zero, so this model is both causal and invertible.
+
+## Cross-correlation of illnesses with hospitalizations
+
+Let's examine the relationships betewen illnesses and hospitalizations. First, we will plot the CCF of log illnesses and log hospitalizations. 
+
+```{r}
+ccf2(df_outbreaks_summary$log_illnesses, df_outbreaks_summary$log_hospitalizations)
+```
+
+There are some significant and systematic cross-correlations between log illnesses and log hospitalizations, but the magnitude seems to be somewhat small (the cross-correlations are less than -0.2). However, let's examine the differences in log illness to see if there is an impact on additional log hospitalizations.
+
+```{r}
+ccf2(df_outbreaks_summary$diff_log_illnesses, df_outbreaks_summary$diff_log_hospitalizations)
+```
+
+There doesn't appear to be any significant cross-correlations in the change in log illnesses and change in log hospitalizations except when lag = 1. Again, the cross-correlation is about -0.2, meaning that an above average increase in log illnesses tends to be followed by a below average decrease in log hospitalizations about 1 month later. This seems to make sense - if there is a higher than expected increase in illness from foodborne disease, then the change in hospitalizations should be decreasing less (i.e. more people are being admitted than expected in the period following the illness).
