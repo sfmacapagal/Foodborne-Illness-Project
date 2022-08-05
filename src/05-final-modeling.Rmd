@@ -17,6 +17,10 @@ knitr::opts_chunk$set(echo = TRUE)
 acf2(df_outbreaks_summary$diff_log_illnesses)
 sarima(df_outbreaks_summary$log_illnesses, 1, 1, 1,
        no.constant = TRUE)
+
+# ARIMA(1, 1, 0)
+sarima(df_outbreaks_summary$log_illnesses, 1, 1, 0,
+       no.constant = TRUE)
 ```
 
 ```{r}
@@ -41,3 +45,10 @@ ccf2(df_outbreaks_summary$diff_log_illnesses, df_outbreaks_summary$diff_log_hosp
 ```
 
 There doesn't appear to be any significant cross-correlations in the change in log illnesses and change in log hospitalizations except when lag = 1. Again, the cross-correlation is about -0.2, meaning that an above average increase in log illnesses tends to be followed by a below average decrease in log hospitalizations about 1 month later. This seems to make sense - if there is a higher than expected increase in illness from foodborne disease, then the change in hospitalizations should be decreasing less (i.e. more people are being admitted than expected in the period following the illness).
+
+## Forecasts using SARIMA
+
+```{r}
+sarima.for(df_outbreaks_summary$log_illnesses, n.ahead = 12, 1, 1, 0)
+```
+
