@@ -36,6 +36,8 @@ Let's examine the relationships betewen illnesses and hospitalizations. First, w
 
 ```{r}
 ccf2(df_outbreaks_summary$log_illnesses, df_outbreaks_summary$log_hospitalizations)
+
+
 ```
 
 There are some significant and systematic cross-correlations between log illnesses and log hospitalizations, but the magnitude seems to be somewhat small (the cross-correlations are less than -0.2). However, let's examine the differences in log illness to see if there is an impact on additional log hospitalizations.
@@ -49,6 +51,65 @@ There doesn't appear to be any significant cross-correlations in the change in l
 ## Forecasts using SARIMA
 
 ```{r}
-sarima.for(df_outbreaks_summary$log_illnesses, n.ahead = 12, 1, 1, 0)
+dat<-tsbox::ts_ts(tsbox::ts_long(df_outbreaks_summary %>% select(date,total_illnesses)))
+
+fit<-forecast::Arima(dat,order=c(1,1,1),
+                     seasonal = c(1, 0, 1),
+                     lambda=0)
+
+forecast_values <- forecast::forecast(fit,48) 
+
+Metrics::rmse(actuals_2016, forecast_values$mean)
+
+forecast_values %>% 
+  autoplot() +
+  labs(y = "Total Illnesses")
+
 ```
+
+
+```{r}
+preds_arima_110 <- sarima.for(df_outbreaks_summary$total_illnesses, n.ahead = 48, 1, 1, 0)
+logs_2016 <- df_nors_summary$log_illnesses
+actuals_2016 <- df_nors_summary$total_illnesses
+
+exp(preds_arima_110$pred)
+exp(actuals_2016)
+
+Metrics::rmse(logs_2016, preds_arima_110$pred)
+```
+
+
+```{r}
+preds_arima_111 <- sarima.for(df_outbreaks_summary$log_illnesses, n.ahead = 48, 1, 1, 1)
+actuals_2016 <- df_nors_summary$log_illnesses
+
+Metrics::rmse(exp(actuals_2016), exp(preds_arima_111$pred))
+```
+
+```{r}
+df_2016_summary %>%
+  ggplot() +
+  geom_line(aes(x = date,
+                y = log_illnesses),
+            col = "dodgerblue",
+            size = 1) +
+  geom_hline(aes(yintercept = mean(log_illnesses)),
+             col = "firebrick") +
+  labs(x = "Date",
+       y = "log(Illnesses) per month",
+       title = "Salmonella illnesses over time",
+       subtitle = "January 1998 - December 2015") +
+  scale_x_date(date_labels = "%Y-%b",
+               breaks = function(x) seq.Date(from = min(x),
+                                             to = max(x),
+                                             by = "2 years"),
+               minor_breaks = function(x) seq.Date(from = min(x),
+                                                   to = max(x),
+                                                   by = "6 months")) +
+  # theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  NULL
+```
+
 

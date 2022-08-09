@@ -37,7 +37,11 @@ df_outbreaks_salmonella <- csv_outbreaks %>%
 df_outbreaks_salmonella %>%
   ggplot() +
   geom_line(aes(x = date,
-                y = log_illnesses)) +
+                y = log_illnesses),
+            col = "dodgerblue",
+            size = 1) +
+  geom_hline(aes(yintercept = mean(log_illnesses)),
+             col = "firebrick") +
   labs(x = "Date",
        y = "log(Illnesses) per month",
        title = "Salmonella illnesses over time",
@@ -49,21 +53,25 @@ df_outbreaks_salmonella %>%
                minor_breaks = function(x) seq.Date(from = min(x),
                                                    to = max(x),
                                                    by = "6 months")) +
-  theme_minimal() +
+  # theme_minimal() +
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   NULL
 
 ## gg acf plot
-autoplot(acf(df_outbreaks_salmonella$log_illnesses, plot = FALSE)) +
-  geom_hline(yintercept = 0) +
-  labs(x = "Lag",
-       y = "ACF")
+acf_salmonella <- forecast::ggAcf(df_outbreaks_salmonella$log_illnesses) +
+  labs(title = NULL)
+
+
+ccf_salmonella <- forecast::ggCcf(df_outbreaks_salmonella$log_illnesses, df_outbreaks_salmonella$log_hospitalizations) +
+  labs(title = NULL)
 
 ## gg pacf plot
-autoplot(pacf(df_outbreaks_salmonella$log_illnesses, plot = FALSE)) +
-  geom_hline(yintercept = 0) +
-  labs(x = "Lag",
-       y = "PACF")
+pacf_salmonella <- forecast::ggPacf(df_outbreaks_salmonella$log_illnesses) +
+  labs(title = NULL)
+
+
+acf_pacf_salmonella <- ggpubr::ggarrange(acf_salmonella, pacf_salmonella,
+                  ncol = 1, nrow = 2)
 
 
 ## base R plots
@@ -74,7 +82,7 @@ acf2(df_outbreaks_salmonella$log_illnesses)
 ```{r}
 sarima(df_outbreaks_salmonella$log_illnesses, 1, 0, 1, 0, 1, 1, 12)
 
-ggfortify::ggtsdiag(forecast::auto.arima(df_outbreaks_salmonella$log_illnesses, 1, 0, 1, 0, 1, 1, 12))
+ggfortify::ggtsdiag(forecast::auto.arima(df_outbreaks_salmonella$log_illnesses, 1, 1, 1, 1, 1, 1))
 ```
 
 ```{r}
@@ -85,11 +93,41 @@ ccf2(df_outbreaks_salmonella$log_illnesses,
 Let's try to forecast the next few periods:
 
 ```{r}
-sarima.for(df_outbreaks_salmonella$log_illnesses, n.ahead = 12,
-           1, 0, 1, 0, 1, 1, 12)
+salmonella_forecast <-sarima.for(df_outbreaks_salmonella$log_illnesses, n.ahead = 36,
+                                 1, 0, 1, 0, 1, 1, 12)
+
+salmonella_preds <- data.frame(time = 216:251,
+                               preds = salmonella_forecast$pred,
+                               se = salmonella_forecast$se,
+                               low = salmonella_forecast$pred - 2*salmonella_forecast$se,
+                               high = salmonella_forecast$pred + 2*salmonella_forecast$se)
+
+df_new_values <- df_outbreaks_summary %>%
+  left_join(salmonella_preds, by = "time")
+
 ```
 
 Our initial goal was to compare our forecasts against the CDC data for the years after 2015, but it turns out they only released the summaries and not the raw data yet.
+
+```{r}
+
+
+df_new_values %>%
+  filter(year <= 2018) %>%
+ggplot() +
+  # geom_line(data = df_outbreaks_salmonella,
+  #           aes(x = date,
+  #               y = log_illnesses)) +
+  geom_line(aes(x = date,
+                y = log_illnesses),
+            col = "dodgerblue") +
+  geom_line(aes(x = date,
+                y = preds),
+            col = "firebrick") +
+  geom_polygon(aes(group = date,
+                   fill = c(low, rev(high))))
+```
+
 	
 ## Escherichia coli analysis
 
@@ -159,4 +197,6 @@ acf2(df_outbreaks_norovirus$log_illnesses)
 ```{r}
 ccf2(df_outbreaks_norovirus$log_illnesses, df_outbreaks_norovirus$log_hospitalizations)
 ```
+
+
 
