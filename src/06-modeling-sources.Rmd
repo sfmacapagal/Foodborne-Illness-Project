@@ -1,0 +1,202 @@
+---
+title: "Modeling by source"
+author: "Steven Macapagal"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Salmonella analysis
+
+```{r}
+df_outbreaks_salmonella <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% 
+  filter(str_detect(species, "Salmonella")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+```
+
+```{r}
+# gg time series of log salmonella
+df_outbreaks_salmonella %>%
+  ggplot() +
+  geom_line(aes(x = date,
+                y = log_illnesses),
+            col = "dodgerblue",
+            size = 1) +
+  geom_hline(aes(yintercept = mean(log_illnesses)),
+             col = "firebrick") +
+  labs(x = "Date",
+       y = "log(Illnesses) per month",
+       title = "Salmonella illnesses over time",
+       subtitle = "January 1998 - December 2015") +
+  scale_x_date(date_labels = "%Y-%b",
+               breaks = function(x) seq.Date(from = min(x),
+                                             to = max(x),
+                                             by = "2 years"),
+               minor_breaks = function(x) seq.Date(from = min(x),
+                                                   to = max(x),
+                                                   by = "6 months")) +
+  # theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  NULL
+
+## gg acf plot
+acf_salmonella <- forecast::ggAcf(df_outbreaks_salmonella$log_illnesses) +
+  labs(title = NULL)
+
+
+ccf_salmonella <- forecast::ggCcf(df_outbreaks_salmonella$log_illnesses, df_outbreaks_salmonella$log_hospitalizations) +
+  labs(title = NULL)
+
+## gg pacf plot
+pacf_salmonella <- forecast::ggPacf(df_outbreaks_salmonella$log_illnesses) +
+  labs(title = NULL)
+
+
+acf_pacf_salmonella <- ggpubr::ggarrange(acf_salmonella, pacf_salmonella,
+                  ncol = 1, nrow = 2)
+
+
+## base R plots
+tsplot(df_outbreaks_salmonella$diff_log_illnesses)
+acf2(df_outbreaks_salmonella$log_illnesses)
+```
+
+```{r}
+sarima(df_outbreaks_salmonella$log_illnesses, 1, 0, 1, 0, 1, 1, 12)
+
+ggfortify::ggtsdiag(forecast::auto.arima(df_outbreaks_salmonella$log_illnesses, 1, 1, 1, 1, 1, 1))
+```
+
+```{r}
+ccf2(df_outbreaks_salmonella$log_illnesses,
+     df_outbreaks_salmonella$log_hospitalizations)
+```
+
+Let's try to forecast the next few periods:
+
+```{r}
+salmonella_forecast <-sarima.for(df_outbreaks_salmonella$log_illnesses, n.ahead = 36,
+                                 1, 0, 1, 0, 1, 1, 12)
+
+salmonella_preds <- data.frame(time = 216:251,
+                               preds = salmonella_forecast$pred,
+                               se = salmonella_forecast$se,
+                               low = salmonella_forecast$pred - 2*salmonella_forecast$se,
+                               high = salmonella_forecast$pred + 2*salmonella_forecast$se)
+
+df_new_values <- df_outbreaks_summary %>%
+  left_join(salmonella_preds, by = "time")
+
+```
+
+Our initial goal was to compare our forecasts against the CDC data for the years after 2015, but it turns out they only released the summaries and not the raw data yet.
+
+```{r}
+
+
+df_new_values %>%
+  filter(year <= 2018) %>%
+ggplot() +
+  # geom_line(data = df_outbreaks_salmonella,
+  #           aes(x = date,
+  #               y = log_illnesses)) +
+  geom_line(aes(x = date,
+                y = log_illnesses),
+            col = "dodgerblue") +
+  geom_line(aes(x = date,
+                y = preds),
+            col = "firebrick") +
+  geom_polygon(aes(group = date,
+                   fill = c(low, rev(high))))
+```
+
+	
+## Escherichia coli analysis
+
+```{r}
+df_outbreaks_ecoli <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% 
+  filter(str_detect(species, "Escherichia coli")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(log_hospitalizations = if_else(log_hospitalizations == -Inf, -1, log_hospitalizations),
+         diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+```
+
+
+```{r}
+tsplot(df_outbreaks_ecoli$log_illnesses)
+acf2(df_outbreaks_ecoli$log_illnesses)
+```
+
+```{r}
+ccf2(df_outbreaks_ecoli$log_illnesses, df_outbreaks_ecoli$log_hospitalizations)
+```
+
+
+## Norovirus analysis
+
+```{r}
+df_outbreaks_norovirus <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% 
+  filter(str_detect(species, "Norovirus")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(log_hospitalizations = if_else(log_hospitalizations == -Inf, -1, log_hospitalizations),
+         diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+```
+
+
+```{r}
+tsplot(df_outbreaks_norovirus$log_illnesses)
+acf2(df_outbreaks_norovirus$log_illnesses)
+```
+
+```{r}
+ccf2(df_outbreaks_norovirus$log_illnesses, df_outbreaks_norovirus$log_hospitalizations)
+```
+
+
+
