@@ -1,39 +1,22 @@
 # Foodborne-Illness-Project
 
-Welcome to ProjectTemplate!
+## Summary of project
 
-This file introduces you to ProjectTemplate, but you should eventually replace
-the contents of this file with an introduction to your project. People who
-work with your data in the future will thank you for it, including your future
-self.
+This repository houses the analysis completed for the STAT 626 - Time Series group project. Our group took two months to analyze the behavior of foodborne illnesses and diseases from 1998 to 2015. We collaborated in three rounds:
 
-ProjectTemplate is an R package that helps you organize your statistical
-analysis projects. Since you're reading this file, we'll assume that you've
-already called `create.project()` to set up this project and all of its
-contents.
+1. basic EDA
+2. basic ARMA modeling
+3. constructing, selecting, forecasting and validating more complex models
 
-To load your new project, you'll first need to `setwd()` into the directory
-where this README file is located. Then you need to run the following two
-lines of R code:
+After each round, we collaborated on reporting and presenting, culminating in a final 10-page report and 20-minute presentation, followed by Q&A.
 
-	library('ProjectTemplate')
-	load.project()
+## Summary of findings
 
-After you enter the second line of code, you'll see a series of automated
-messages as ProjectTemplate goes about doing its work. This work involves:
-* Reading in the global configuration file contained in `config`.
-* Loading any R packages you listed in the configuration file.
-* Reading in any datasets stored in `data` or `cache`.
-* Preprocessing your data using the files in the `munge` directory.
+Foodborne illnesses can be cyclic in nature, so seasonal ARIMA models tend to be the best fitting for our data, while more complex models may overfit. Modeling individual diseases tends to produces better fit and forecasts than does modeling overall trends; however, consumer behavior and regulatory schemes should be used to contextualize the various patterns across time.
 
-Once that's done, you can execute any code you'd like. For every analysis
-you create, we'd recommend putting a separate file in the `src` directory.
-If the files start with the two lines mentioned above:
+## Relevant links
 
-	library('ProjectTemplate')
-	load.project()
+* CDC National Outbreak Reporting System (NORS) Dashboard: [https://wwwn.cdc.gov/norsdashboard/](https://wwwn.cdc.gov/norsdashboard/)
+* Original Kaggle data set: [https://www.kaggle.com/datasets/cdc/foodborne-diseases](https://www.kaggle.com/datasets/cdc/foodborne-diseases)
 
-You'll have access to all of your data, already fully preprocessed, and
-all of the libraries you want to use.
-
-For more details about ProjectTemplate, see http://projecttemplate.net
+Copyright &copy; 2022 Shores, Macapagal, Martinez, Yao, Nagy, Porter.
