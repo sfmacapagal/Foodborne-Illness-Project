@@ -1,0 +1,520 @@
+---
+title: "Group 12 Final Report"
+author:
+  - Trina Shores^[katrina.shores@tamu.edu - Graduate Certificate in Statistics (Distance)], Group Leader
+  - Steven Macapagal^[steven.macapagal@tamu.edu - Masters of Science in Statistics (Distance)], Editor/Analyst
+  - Journey Martinez^[journeymartinez89@tamu.edu - Masters of Science in Statistics (Distance)], Computation/Analyst
+  - Yuan Yao^[bonedragona@tamu.edu - Masters of Science in Biology (Distance)], Editor/Analyst
+  - Heather Nagy^[hnagy@tamu.edu - Masters of Science in Statistics (Distance)], Analyst
+  - Kenneth Porter^[kporte@tamu.edu - Masters of Science in Statistics (Distance)], Editor
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+    number_sections: FALSE
+    
+header-includes:
+  - \usepackage{wrapfig}
+  - \usepackage{lipsum}
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+defOut <- knitr::knit_hooks$get("plot")  # save the default plot hook 
+knitr::knit_hooks$set(plot = function(x, options) {  # set new plot hook ...
+  x <- defOut(x, options)  # first apply the default hook
+  if(!is.null(options$wrapfigure)) {  # then, if option wrapfigure is given ...
+    # create the new opening string for the wrapfigure environment ...
+    wf <- sprintf("\\begin{wrapfigure}{%s}{%g\\textwidth}", options$wrapfigure[[1]], options$wrapfigure[[2]])
+    x  <- gsub("\\begin{figure}", wf, x, fixed = T)  # and replace the default one with it.
+    x  <- gsub("{figure}", "{wrapfigure}", x, fixed = T)  # also replace the environment ending
+  }
+  return(x)
+})
+```
+
+\newpage
+# Abstract
+
+Food borne disease affects a significant amount of Americans yearly. Data on food borne illness from January $1998$ through December $2015$ was made stationary through log transformation and differencing, and then a model was selected based on ACF and PACF behavior, as well as residual diagnostics. The chosen model was an ${\rm ARIMA}(1,1,1) \times (1,0,1)_{12}$, out of candidates such as ${\rm ARIMA}$, ${\rm GARCH}$, other ${\rm SARIMA}$, and Prophet models. Forecast performance was used to validate model choice, and in all informative cases showed a decreasing seasonal trend in predicted instances of illness for the $48$ months following December $2015$.  
+
+# Background and Research Goals
+
+The CDC estimates that each year roughly $1$ in $6$ Americans (or $48$ million people) gets sick, $128,000$ are hospitalized, and $3,000$ die of food borne diseases. Our data set provides data on food borne disease outbreaks reported to the CDC from $1998$-$2015$. Data fields include year, state, location, reported food vehicle and contaminated ingredient, etiology, status, total illnesses, hospitalizations, and fatalities.  
+
+Our goal was primarily to describe the trends and variability in our illness data. After finding a valid model and analyzing the relationship between illnesses and hospitalizations, we wanted to check a large subset of the data (illnesses from Salmonella) to see behaviors after removing some variability from other illness sources.
+
+```{r prep, include=FALSE}
+# load in necessary packages
+library(astsa) # time series analysis
+library(tidyverse) # structuring/organizing
+library(dplyr) # more structuring/organizing
+library(glue) # concatenating
+library(janitor) # cleaning column names
+library(lubridate) # handling dates
+library(ggplot2) # better plots
+library(readxl) # read excel files
+library(Metrics) # RMSE
+library(xts) # more time series analysis
+library(fGarch) # GARCH model
+library(tsbox) # forecasts
+library(ggpubr) # validating 2 data sets
+library(prophet) # prophet model
+library(kableExtra) # tables
+
+# load in data set
+csv_outbreaks <- read.csv("C:/Users/Lost4/OneDrive/Documents/STAT 626/outbreaks.csv") %>%  # !!!!! update path to YOUR file !!!!!
+  janitor::clean_names() # clean column names
+
+# prepare data for analysis (fix date, group by outcomes, transform to stationarity)
+df_outbreaks_summary <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date), unit = "month")) %>% # computes number of months since lowest date
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE), # total
+            total_hospitalizations = sum(hospitalizations, na.rm = TRUE), # total
+            total_fatalities = sum(fatalities, na.rm = TRUE), # total
+            log_illnesses = log(total_illnesses), # log transform
+            log_hospitalizations = log(total_hospitalizations), # log transform
+            log_fatalities = log(total_fatalities)) %>% # log transform
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses)), # difference of log
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)), # difference of log
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>% # difference of log
+  arrange(time)
+
+names(df_outbreaks_summary) # check new columns and their names
+```
+
+```{r echo = F, warning = F, message = F, fig.width=3.5, fig.height = 4.5, out.width = ".46\\textwidth", fig.cap = "Transforming to Stationarity", fig.align="right", wrapfigure = list("R", .5)}
+# create time series object and trend for figure 1 plot 1
+foodIll <- ts(df_outbreaks_summary$total_illnesses, start=c(1998, 1), end=c(2015, 12), frequency=12) # original
+fitIll <- lm(foodIll~time(foodIll), na.action=NULL) # trend
+
+# create time series object and trend for figure 1 plot 2
+foodIllLog <- ts(df_outbreaks_summary$log_illnesses, start=c(1998, 1), end=c(2015, 12), frequency=12) # log transform
+fitIllLog <- lm(foodIllLog~time(foodIllLog), na.action=NULL) # trend
+
+# create time series object and trend for figure 1 plot 3
+foodIllLogDiff <- ts(df_outbreaks_summary$diff_log_illnesses, start=c(1998, 1), end=c(2015, 12), frequency=12) # difference
+fitIllLogDiff <- lm(foodIllLogDiff[-1]~time(foodIllLogDiff[-1]), na.action=NULL) # trend
+
+par(mfrow=c(3,1))
+# plot figure 1 plot 1
+tsplot(foodIll, xlab="Date", ylab="Illnesses", col="cornflowerblue")
+abline(fitIll, lty=2, col="darkorchid")
+
+# plot figure 1 plot 2
+tsplot(foodIllLog, xlab="Date", ylab="Log of Illnesses", col="hotpink")
+abline(fitIllLog, lty=2, col="turquoise3")
+
+# plot figure 1 plot 3
+tsplot(foodIllLogDiff, xlab="Date", ylab="Differenced Log of Illnesses", col="aquamarine4")
+abline(fitIllLogDiff, lty=2, col="goldenrod")
+```
+
+The results of that analysis would serve as inspiration to form additional valid models for the sake of comparison, using AIC, BIC, and forecasting RMSE. Only after careful consideration of these could we decide on the best model for our data. 
+
+# Stationarity
+
+Figure $1$ shows total illnesses per month from January $1998$ through December $2015$ (blue), with mean (purple). There appeared to be a downward trend in total illnesses per month, and a decrease in variability after $2010$. There was a slight seasonal pattern; the highest illness counts seemed to be between February and May while the lowest were between July and November.
+
+In order to make this time series stationary, we had to address two issues. The first was heteroskedasticity; the variability in the first $12$ years was much larger than in the last $5$. The second was trend; the mean of the data tended downward with time.
+
+To remedy these, we first took a log transformation of our illness data to stabilize the variance. Afterward, we looked at both differencing and detrending; differencing the data cut down the autocorrelation more than detrending did ($0.25$ vs. $-0.41$ at lag $1$). So, our final transformations were taking the log, then differencing the total illnesses; shown in plots $2$ and $3$ of Figure $1$.
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2.5, out.width = ".5\\textwidth", fig.cap = "Stationary Illness Data", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+acf2(foodIllLogDiff, main="")
+```
+
+# Model Selection
+
+Once we identified that this transformation achieved stationarity, we used the correlogram (ACF) and partial autocorrelogram (PACF) to select an initial form of the model. Notice how the ACF dropped off immediately after lag $1$, while the PACF trailed off; the first few terms were significant, gradually decreasing until consecutively nonsignificant after lag $4$. This behavior suggests an ${\rm ARIMA}(0,1,1)$ model, since only one lag in the ACF was significant while the PACF trailed off with multiple significant lags.  
+
+From there, we fit the ${\rm ARIMA}(0,1,1)$ model to our stationary data using the sarima function from the astsa package. Our conditional sums of squares converged to $-1.010483$ and unconditional sums of squares (MLE) converged to $-1.017639$; the ${\rm MA}(1)$ term was significant by a p-value of $0$ resulting from a test statistic of $-31.3782$ following a $t$ distribution with $214$ degrees of freedom. The AIC for the model was $0.8212041$, and BIC was $0.8525589$. The results of the residual analyses for the model showed that he standardized residuals had a decent scatter and followed a Normal distribution well, evidenced by the Normal Q-Q plot. However, one thing we noticed was that the Ljung-Box statistic plot showed all significant p-values for the Q-tests. This meant we rejected that the residuals were uncorrelated; meaning the residuals were not white noise. In order to remove the autocorrelation in the residuals and get white noise, we decided to add an ${\rm AR}(1)$ term, and refitted the model to be an ${\rm ARIMA}(1,1,1)$.
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 3.5, out.width = ".7\\textwidth", fig.cap = "Residual Analyses of ARIMA(1,1,1)", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+sarima(log(foodIll), p = 1, d = 1, q = 1, no.constant=TRUE)
+```
+
+Overfitting is an issue that impacts forecasting accuracy, so caution was taken when adding the parameter. After fitting, our conditional sums of squares converged to $-1.014162$ and unconditional sums of squares (MLE) converged to $-1.039521$; both the ${\rm AR}(1)$ and ${\rm MA}(1)$ terms were significant by p-values of $0.0023$ and $0$, resulting from test statistics of $3.0912$ and $-44.6319$, each following a $t$ distribution with $214$ degrees of freedom. The AIC ($0.7867413$) and BIC ($0.8337735$) were smaller for this model compared to those from the previous model. Considering the BIC was still lower despite having more parameters, we felt confident it was best to add the ${\rm AR}(1)$ term. Using the coefficient estimates, our new model was expressed as follows. $$\nabla \hat x_t=0.2193_{(0.071)}\nabla x_{t-1}+\hat{\omega_t}_{(0.1241)}-0.9351_{(0.021)}\omega_{t-1}$$
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2.9, out.width = ".46\\textwidth", fig.cap = "Cross-Correlation of Illnesses and Hospitalizations", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+par(mfrow=c(2,1))
+ccf2(df_outbreaks_summary$log_illnesses, df_outbreaks_summary$log_hospitalizations, main="Log Transformed")
+ccf2(df_outbreaks_summary$diff_log_illnesses, df_outbreaks_summary$diff_log_hospitalizations, main="Logged and Differenced")
+```
+Figure $3$ displays the results of residual analyses. The ACF for the residuals showed an autocorrelation of zero for all lags and the residual plot itself showed no underlying pattern. The Ljung-Box Q-statistic looked at the accumulation of autocorrelation instead of the individual autocorrelations seen in the ACF. For this model, the p-values exceeded our significance level of $\alpha=0.05$; we did not reject the null hypothesis that the residuals were white noise.  
+
+The relationship between illnesses and hospitalizations was studied in their cross-correlation (CCF). We plotted the CCF of log illnesses and log hospitalizations in the first plot of Figure $5$. There were some significant and systematic cross-correlations, but the magnitude seemed to be somewhat small (less than $-0.2$). We then differenced the data to examine the effect of illnesses on the growth rate of hospitalizations. This is shown in the second plot of Figure $4$, where there didn't appear to be any significant cross-correlations, except at lag $1$. Again, the cross-correlation was about $-0.2$, meaning that an above average increase in log illnesses tended to be followed by a below average decrease in log hospitalizations about $1$ month later (i.e. more people were being admitted to the hospital than expected in the period following the illnesses).
+
+```{r include=FALSE}
+# create_df_salmonella
+df_outbreaks_salmonella <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% 
+  filter(str_detect(species, "Salmonella")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2.5, out.width = ".47\\textwidth", fig.cap = "Log Salmonella Illnesses", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+# create time series object and trend for figure 6
+foodSalLog <- ts(df_outbreaks_salmonella$log_illnesses, start=c(1998, 1), end=c(2015, 12), frequency=12)
+fitSalLog <- lm(foodSalLog~time(foodSalLog), na.action=NULL) # trend
+
+# plot figure 6
+tsplot(foodSalLog, main="", ylab="Log Salmonella Illnesses", col="darkorchid1")
+```
+
+# Specifying Salmonella Source
+
+One limitation of the prior analyses was the many different sources of disease, having different behaviors over time. We restricted our analyses to cases of illness from Salmonella to see if our chosen model would differ. Figure $5$ shows the log transformed illnesses from Salmonella. The series appeared to be stationary, so we proceeded to look at the dependence structure. Notice the seasonal patterns every $12$th lag. Because the seasonal ACF did not seem to decay over time, we differenced the series seasonally and added a seasonal ${\rm MA}(1)$ term. 
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2.5, out.width = ".46\\textwidth", fig.cap = "Log Salmonella Illnesses", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+acf2(df_outbreaks_salmonella$log_illnesses, main="")
+```
+
+Only the first ordinary lags of the ACF and PACF were significant, so we added both ${\rm AR}(1)$ and ${\rm MA}(1)$ terms. Therefore, our proposed model was an ${\rm ARIMA}(1, 0, 1) \times (0, 1, 1)_{12}$.
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 3.5, out.width = ".7\\textwidth", fig.cap = "Residual Analyses of Log Salmonella Illnesses", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+sarima(df_outbreaks_salmonella$log_illnesses, 1, 0, 1, 0, 1, 1, 12)
+```
+
+From there, we fit the ${\rm ARIMA}(1, 0, 1) \times (0, 1, 1)_{12}$ model to our stationary Salmonella illness data. Our conditional sums of squares converged to $-0.192331$ and unconditional sums of squares (MLE) converged to $-0.175485$; the ${\rm MA}(1)$, ${\rm AR}(1)$, and seasonal ${\rm MA}(1)$ terms were all significant by a p-values of $0$ resulting from a test statistics of $-5.6491$, $4.3361$, and $-9.5770$ respectively, following $t$ distributions with $200$ degrees of freedom. The AIC for the model was $2.535928$, and BIC was $2.617254$. This represented a considerably good model. Using the coefficient estimates given, our model was expressed as follows.
+$$(1-0.7605_{(0.175)}B)\hat x_t = (1-0.8399_{(0.149)}B)(1-0.999_{(0.001)}B^{12})\hat w_t$$ 
+
+Figure $7$ displays the results of residual analyses for validating the model. The standardized residuals showed a good scatter, decently constant variance, and followed a Normal distribution well, evidenced by the Normal Q-Q plot. Both the ACF and Q tests agreed that there was no correlation remaining. Thus, the residuals were white noise and the model was valid. To further assess the strength of the model, we forecasted $48$ months ahead. We saw that this seasonal forecast seemed to match the cyclic nature and variance seen in the past.
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2.5, out.width = ".5\\textwidth", fig.cap = "Forecast of Log Salmonella Illnesses", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+Log_Salmonella <- df_outbreaks_salmonella$log_illnesses
+sarima.for(Log_Salmonella, n.ahead = 48, 1, 0, 1, 0, 1, 1, 12)
+```
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".46\\textwidth", fig.cap = "Log Transformed Salmonella Illnesses", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+ccf2(df_outbreaks_salmonella$log_illnesses, df_outbreaks_salmonella$log_hospitalizations, main="", ylim=c(-.4,.8))
+```
+
+# Relationships Between Illnesses and Hospitalizations
+
+When we looked at the salmonella cases only, the patterns we saw in the CCf plot from Figure $8$ seemed to be much stronger. For lag $0$, the most likely explanation for this pattern was that hospitals have a consistent reporting mechanism of food borne illnesses to the CDC, whereas cases diagnosed outside a hospital may not be reported consistently.  
+
+# Comparisons to ARIMA(1,1,1)
+
+Confirming our suspicions of seasonality in our data, we sought a seasonal model to compare to our ${\rm ARIMA}(1,1,1)$. We also entertained models proposed in previous literature. Lastly, we fit both a ${\rm GARCH}$ and Prophet model, as they are known to handle the complex variance and seasonality that we also suspected in our data.
+
+```{r echo = F, warning = F, message = F, fig.width=3, fig.height = 2.5, out.width = ".7\\textwidth", fig.cap = "Squared Residuals from ARIMA(1,1,1)", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+#Slide 25   ARIMA(1,1,1) + GARCH(1,0)
+#Check squared residuals of ARIMA(1,1,1) baseline model 
+dataLog <- df_outbreaks_summary$log_illnesses
+res <- resid(sarima(dataLog, 1,1,1, details=FALSE)$fit )
+acf2(res^2, 24, main="")
+```
+
+\newpage
+
+In prior literature written by Li, Peng, Zhou, & Zhang ($2021$), the authors proposed an ${\rm ARIMA}(1,1,0)$ on incidence of food borne illness outbreaks. We tried fitting that model to our data to see if it would provide a better level of fit. However, the BIC was found to be $1.0763$; higher than that of our chosen model. Also concerning was the several significant p-values from the Q tests indicating correlation in the residuals. Therefore, the model from Li et al. ($2021$) did not provide a better fit for our data.  
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 3.5, out.width = ".7\\textwidth", fig.cap = "ARIMA(1,1,1)x(1,0,1)12", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+#Fit (1,0,1) seasonal component
+sarima(dataLog, p=1, d=1, q=1, P=1, D=0, Q=1, S=12, no.constant = TRUE)
+```
+
+Analyzing the squared residuals for ${\rm ARIMA}(1,1,1)$ revealed a small bit of dependence (Figure $10$). The mean of the residuals came out to $0.01191047$, making them very slightly biased. Thus, we considered an ${\rm ARIMA}(1,1,1)+{\rm GARCH}(1,0)$. But the $\alpha$ term lacked significance with a p-value of $0.8112$. Using our original data (not log transformed), the $\alpha$ p-value was found to be $0.0698$, which is borderline significant in the two-sided case. However, the AIC of this model jumped up to $15.87$, much higher than the $0.926$ for our transformed data. We then concluded that ${\rm GARCH}$ was not useful in our case after all.  
+
+To determine the seasonal components of our model, we revisited the correlograms of Figure $2$, but couldn't visually determine the pattern. So we began with an ${\rm SMA}(1)_{12}$ with seasonal differencing addition, yielding the unsatisfactory result of an insignificant ${\rm AR}(1)$ term, higher BIC, and more concerning higher AIC. This seasonal model, although technically valid, was not an improvement. We then realized that the lack of seasonal pattern in the correlograms was likely due to the model not requiring seasonal differencing. Hence, the ${\rm ARIMA}(1,1,1)\times (1,0,1)_{12}$ was fit, mimicking our nonseasonal terms.  
+
+All terms (${\rm AR}(1)$, ${\rm MA}(1)$, ${\rm SAR}(1)$, and ${\rm SMA}(1)$) were significant by a p-values of $0.0213$, $0$, $0$, and $0$ resulting from test statistics of $2.3201$, $-41.5258$, $10.4234$, and $-6.0948$ respectively, following a $t$ distribution with $211$ degrees of freedom. Figure $11$ displays the residual analyses; constant variance, following a Normal distribution, and lack of correlation indicated only white noise remained. Better yet, the AIC ($0.7686196$) was lower than the ${\rm ARIMA}(1,1,1)$, while the BIC ($0.8470065$) was only slightly higher (despite the model having several additional parameters). The mean of the residuals were closer to $0$, and the squared residuals were less correlated. Thus, the seasonal model was a clear improvement, shown below.
+$$x_t=(1+\phi)x_{t-1}-\phi x_{t-2}+\Phi x_{t-12}-\Phi(\phi+1)x_{t-13}+\Phi\phi x_{t-14}+\omega_t-\theta\omega_{t-1}+\Theta\omega_{t-12}+\Theta\omega_{t-13}$$
+$$x_t=1.1692x_{t-1}-0.1692x_{t-2}+0.9509x_{t-12}-1.1118x_{t-13}+0.1608x_{t-14}+\omega_t-0.9403\omega_{t-1}-0.8796\omega_{t-12}+0.8271\omega_{t-13}$$
+
+```{r include=FALSE}
+# later data for prediction
+df_nors_db <- readxl::read_xlsx("C:/Users/Lost4/OneDrive/Documents/STAT 626/NationalOutbreakPublicDataTool (3).xlsx") %>%
+  janitor::clean_names()
+
+df_nors_summary <- df_nors_db %>%
+  mutate(month = month(month, label = TRUE),
+         date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm=TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm=TRUE),
+         total_fatalities = sum(deaths, na.rm=TRUE)) %>%
+  mutate(log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities))
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 4, out.width = ".5\\textwidth", fig.cap = "Comparing Original and New Data", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+old <- csv_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>% 
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(fatalities, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+
+xlsx_outbreaks <- read_excel("C:/Users/Lost4/OneDrive/Documents/STAT 626/19952020.xlsx",sheet = 1) %>%
+  janitor::clean_names()
+
+new <- xlsx_outbreaks %>%
+  mutate(date = glue::glue("{year}-{month}"), # concatenates year-month
+         date = ym(date), # changes to date format
+         time = time_length(interval(min(date), date),
+                            unit = "month")) %>%
+  group_by(time, year, month, date) %>%
+  summarize(total_illnesses = sum(illnesses, na.rm = TRUE),
+         total_hospitalizations = sum(hospitalizations, na.rm = TRUE),
+         total_fatalities = sum(deaths, na.rm = TRUE),
+         log_illnesses = log(total_illnesses),
+         log_hospitalizations = log(total_hospitalizations),
+         log_fatalities = log(total_fatalities)) %>%
+  ungroup() %>%
+  mutate(diff_log_illnesses = c(NA, diff(log_illnesses)),
+         diff_log_hospitalizations = c(NA, diff(log_hospitalizations)),
+         diff_log_fatalities = c(NA, diff(log_fatalities))) %>%
+  arrange(time)
+
+#ggplot() +
+#  geom_line(data = new[180:264,], aes(x = date, y = total_illnesses), color = "blue")
+
+ill <- ggplot() +
+  geom_point(data = new, aes(x = date, y = total_illnesses), color = "lightslateblue") + 
+  geom_point(data = old, aes(x = date, y = total_illnesses), color = "indianred2")
+
+hos <- ggplot() +
+  geom_point(data = new, aes(x = date, y = total_hospitalizations), color = "lightslateblue") + 
+  geom_point(data = old, aes(x = date, y = total_hospitalizations), color = "indianred2")
+
+fatal <- ggplot() +
+  geom_point(data = new, aes(x = date, y = total_fatalities), color = "lightslateblue") + 
+  geom_point(data = old, aes(x = date, y = total_fatalities), color = "indianred2")
+
+ggarrange(ill, hos, fatal, 
+          ncol = 1, nrow = 3)
+```
+
+# Forecasting
+
+Because our original data set ended in December $2015$, we were able to make forecasts from our models and compare their predictions to National Outbreak Reporting data collected from $1998$-$2020$ (although we did not include $2020$, since the data appeared to be heavily influenced by the COVID-$19$ pandemic). Data coinciding from $1998$-$2015$ was compared in Figure $12$ to ensure the appropriateness of validating our models using the new data.  
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "ARIMA(1,1,1) Forecast", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+dat<-df_outbreaks_summary$diff_log_illnesses
+
+##Slides 31 - 34
+#ARIMA(1,1,1) baseline model
+fit<-forecast::Arima(dat,order=c(1,1,1),
+                     lambda=0)
+forecast_values <- forecast::forecast(fit,48) 
+forecast_values %>% autoplot(ylab="Illnesses")
+```
+
+Forecasts from the ${\rm ARIMA}(1,1,1)$, ${\rm ARIMA}(1,1,0)$, ${\rm ARIMA}(1,1,1)\times (1,0,1)_{12}$, and the ${\rm ARIMA}(1,1,1)\times (0,1,1)_{12}$
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "ARIMA(1,1,0) Forecast", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+#ARIMA(1,1,0) model comparison from paper
+fit<-forecast::Arima(dat,order=c(1,1,0),
+                     lambda=0)
+forecast_values <- forecast::forecast(fit,48) 
+forecast_values %>% autoplot(ylab="Illnesses")
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "ARIMA(1,1,1)x(1,0,1)S=12 Forecast", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+#ARIMA(1,1,1)x(1,0,1) s = 12
+dat<-tsbox::ts_ts(tsbox::ts_long(df_outbreaks_summary %>% select(date,total_illnesses)))
+fit<-forecast::Arima(dat,order=c(1,1,1),
+                     seasonal=c(1,0,1), 
+                     lambda=0)
+forecast_values <- forecast::forecast(fit,48) 
+forecast_values %>% autoplot(ylab="Illnesses")
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "ARIMA(1,1,1)x(0,1,1)S=12 Forecast", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+#ARIMA(1,1,1)x(0,0,1) s= 12
+fit<-forecast::Arima(dat,order=c(1,1,1),
+                     seasonal=c(0,1,1), 
+                     lambda=0)
+forecast_values <- forecast::forecast(fit,48) 
+forecast_values %>% autoplot(ylab="Illnesses")
+
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "Prophet Forecast", fig.align="right", wrapfigure = list("R", .5), results='hide', fig.keep='all'}
+# Slide 36
+df <- new %>% filter(date>'1997-01-01' & date<'2016-01-01') %>% arrange(date)
+df <- df %>% group_by(date) %>% summarise(total_illnesses=sum(total_illnesses)) %>% arrange(date) %>% rename(ds=date,y=total_illnesses)
+
+#Prophet
+m<-prophet()
+prophet_model<-fit.prophet(m,df)
+new_df=make_future_dataframe(prophet_model, periods=48,freq='month')
+forecast=predict(prophet_model,new_df)
+plot(prophet_model,forecast,ylab='Illnesses',xlab='Time')
+```
+
+```{r echo=FALSE, fig.height=9, fig.width=7}
+par(mfrow=c(4,2))
+#Slide 40 
+#sarima(old$log_illnesses, p=1, d=1, q=1,no.constant = TRUE)
+
+#sarima(new$log_illnesses[1:216], p=1, d=1, q=1,no.constant = TRUE)
+
+fore.mod1 <- sarima.for(df_outbreaks_summary$log_illnesses,n.ahead = 48,1,1,0)
+
+  #Calculate 95% C.I.s
+  low1 <- exp(fore.mod1$pred - qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod1$se)
+  up1 <- exp(fore.mod1$pred + qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod1$se)
+X<-as.Date(new$date[217:264])
+#Forecasts with C.I.s
+#  dev.new(width = 8, height = 6, pointsize = 10)
+  plot(y = new$total_illnesses[217:264],x = X, ylab = "total_illnesses", xlab = "time", type = "o", col = "red", lwd = 1, pch = 20,
+   	main = expression(paste("ARIMA(1,1,1)")) ,
+   	panel.first=grid(col = "gray", lty = "dotted"),
+   	ylim = c(100,4000))
+  lines(y = exp(fore.mod1$pred), x = X, lwd = 1, col = "black", type = "o", pch = 17)
+  lines(y = low1, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  lines(y = up1, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  legend("topleft", legend = c("Observed", "Forecast", "95% C.I."), lty = c("solid", "solid", "dashed"),
+     	col = c("red", "black", "darkgreen"), pch = c(20, 17, NA), bty = "n")
+#Slide 41
+#sarima(old$log_illnesses, p=1, d=1, q=0,no.constant = TRUE)
+
+#sarima(new$log_illnesses[1:216], p=1, d=1, q=0,no.constant = TRUE)
+
+fore.mod2 <- sarima.for(df_outbreaks_summary$log_illnesses,n.ahead = 48,1,1,0)
+
+  #Calculate 95% C.I.s
+  low2 <- exp(fore.mod2$pred - qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod2$se)
+  up2 <- exp(fore.mod2$pred + qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod2$se)
+X<-as.Date(new$date[217:264])
+#Forecasts with C.I.s
+#  dev.new(width = 8, height = 6, pointsize = 10)
+  plot(y = new$total_illnesses[217:264],x = X, ylab = "total_illnesses", xlab = "time", type = "o", col = "red", lwd = 1, pch = 20,
+   	main = expression(paste("ARIMA(1,1,0)")) ,
+   	panel.first=grid(col = "gray", lty = "dotted"),
+   	ylim = c(100,4000))
+  lines(y = exp(fore.mod2$pred), x = X, lwd = 1, col = "black", type = "o", pch = 17)
+  lines(y = low2, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  lines(y = up2, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  legend("topleft", legend = c("Observed", "Forecast", "95% C.I."), lty = c("solid", "solid", "dashed"),
+     	col = c("red", "black", "darkgreen"), pch = c(20, 17, NA), bty = "n")
+
+#Slide 42
+#sarima(old$log_illnesses, p=1, d=1, q=1, P=1, D=0, Q=1, S=12, no.constant = TRUE)
+
+#sarima(new$log_illnesses[1:216], p=1, d=1, q=1, P=1, D=0, Q=1, S=12, no.constant = TRUE)
+
+
+fore.mod3 <- sarima.for(df_outbreaks_summary$log_illnesses,n.ahead = 48,1,1,1,0,1,1,12)
+X<-as.Date(new$date[217:264])
+  #Calculate 95% C.I.s
+  low3 <- exp(fore.mod3$pred - qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod3$se)
+  up3 <- exp(fore.mod3$pred + qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod3$se)
+
+#Forecasts with C.I.s
+#  dev.new(width = 8, height = 6, pointsize = 10)
+  plot(y = new$total_illnesses[217:264],x = X, ylab = "total_illnesses", xlab = "time", type = "o", col = "red", lwd = 1, pch = 20,
+   	main = expression(paste("SARIMA(1,1,1)x(1,0,1)s=12 ")) ,
+   	panel.first=grid(col = "gray", lty = "dotted"),
+   	ylim = c(100,4000))
+  lines(y = exp(fore.mod3$pred), x = X, lwd = 1, col = "black", type = "o", pch = 17)
+  lines(y = low3, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  lines(y = up3, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  legend("topleft", legend = c("Observed", "Forecast", "95% C.I."), lty = c("solid", "solid", "dashed"),
+     	col = c("red", "black", "darkgreen"), pch = c(20, 17, NA), bty = "n")
+
+#Slide 43
+#sarima(old$log_illnesses, p=1, d=1, q=1, P=0, D=1, Q=1, S=12, no.constant = TRUE)
+
+#sarima(new$log_illnesses[1:216], p=1, d=1, q=1, P=0, D=1, Q=1, S=12, no.constant = TRUE)
+
+
+fore.mod4 <- sarima.for(df_outbreaks_summary$log_illnesses,n.ahead = 48,1,1,1,0,1,1,12)
+X<-as.Date(new$date[217:264])
+  #Calculate 95% C.I.s
+  low4 <- exp(fore.mod4$pred - qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod4$se)
+  up4 <- exp(fore.mod4$pred + qnorm(p = 0.975, mean = 0, sd = 1)*fore.mod4$se)
+
+#Forecasts with C.I.s
+#  dev.new(width = 8, height = 6, pointsize = 10)
+  plot(y = new$total_illnesses[217:264],x = X, ylab = "total_illnesses", xlab = "time", type = "o", col = "red", lwd = 1, pch = 20,
+   	main = expression(paste("SARIMA(1,1,1)x(0,1,1)s=12 ")) ,
+   	panel.first=grid(col = "gray", lty = "dotted"),
+   	ylim = c(100,4000))
+  lines(y = exp(fore.mod4$pred), x = X, lwd = 1, col = "black", type = "o", pch = 17)
+  lines(y = low4, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  lines(y = up4, x = X, lwd = 1, col = "darkgreen", lty = "dashed")
+  legend("topleft", legend = c("Observed", "Forecast", "95% C.I."), lty = c("solid", "solid", "dashed"),
+     	col = c("red", "black", "darkgreen"), pch = c(20, 17, NA), bty = "n")
+
+```
+
+
+
+# Conclusion
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "Comparison of AIC and BIC for Models", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+Model <- c("ARIMA(1,1,1)", "ARIMA(1,1,0)", "ARIMA(1,1,1)x(1,0,1)S=12", "ARIMA(1,1,1)x(0,1,1)S=12", "ARIMA(1,1,1)+GARCH(1,0)", "Prophet")
+AIC <- c(0.787, 1.020, 0.769, 0.881, 0.926)
+BIC <- c(0.834, 1.051, 0.847, 0.946, 0.989)
+
+tab1 <- cbind(Model, AIC, BIC)
+
+kable(tab1,booktabs = TRUE,align="l",linesep = "") %>%
+  kable_styling(latex_options = c("striped","HOLD_position"),font_size = 8,full_width = F)
+```
+
+```{r echo = F, warning = F, message = F, fig.width=4, fig.height = 2, out.width = ".5\\textwidth", fig.cap = "Comparison of Forecast RMSE for Models", fig.align="left", wrapfigure = list("L", .5), results='hide', fig.keep='all'}
+Model <- c("ARIMA(1,1,1)", "ARIMA(1,1,0)", "ARIMA(1,1,1)x(1,0,1)S=12", "ARIMA(1,1,1)x(0,1,1)S=12", "ARIMA(1,1,1)+GARCH(1,0)", "Prophet")
+RMSE <- c(489.42, 474.94, 488.63, 487.91, 552.43, 638)
+
+tab2 <- cbind(Model, RMSE)
+
+kable(tab2,booktabs = TRUE,align="l",linesep = "") %>%
+  kable_styling(latex_options = c("striped","HOLD_position"),font_size = 8,full_width = F)
+```
+
+\newpage
+
+# References
+
+Li, S., Peng, Z., Zhou, Y., & Zhang, J. (2021). Time series analysis of foodborne diseases during 2012-2018 in Shenzhen, China. *Journal of Consumer Protection and Food Safety, 17(2)*, 83-91.  
+
+https://wwwn.cdc.gov/norsdashboard/  - need proper form  
+
+https://www.kaggle.com/datasets/cdc/foodborne-diseases  - need proper form  
+
+https://www.cdc.gov/foodborneburden/index.html  - need proper form  
+
+Shumway, R. H., & Stoffer, D. S. (2019). *Time series: A data analysis approach using r*.
+CRC Press, Taylor & Francis Group.  
+
+Stoffer, D., & Poison, N. (2022). *Astsa: Applied statistical time series analysis*. https:
+//CRAN.R-project.org/package=astsa  
