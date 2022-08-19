@@ -1,1 +1,1 @@
-Here you can store any graphs that you produce.
+These are some sample graphs produced for the project.
